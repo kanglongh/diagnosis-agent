@@ -83,7 +83,16 @@ def evaluate(task, selector, n_dims, da='none', classifiers=None, base_dims=None
 
     sc = StandardScaler().fit(X_sub)
     Xs_s = sc.transform(X_sub)
-    sub_dims = select_dims(Xs_s, ys, Xs_s, selector, n_dims)
+
+    # selector 需要目标域样本 (cohens_d/weighted 都算跨域漂移量).
+    # 跨域: 用未经 DA 的 Xt_s; 同域: 传 Xs_s (cohens_d 退化, 但业务上同域没有目标域)
+    if is_cross:
+        Xt_sub = Xt[:, base_dims] if base_dims is not None else Xt[:, ALL]
+        Xt_s = sc.transform(Xt_sub)
+        sub_dims = select_dims(Xs_s, ys, Xt_s, selector, n_dims)
+    else:
+        sub_dims = select_dims(Xs_s, ys, Xs_s, selector, n_dims)
+
     actual_dims = (base_dims[sub_dims] if base_dims is not None else sub_dims).tolist()
     n_actual = int(len(sub_dims))
 
@@ -96,8 +105,7 @@ def evaluate(task, selector, n_dims, da='none', classifiers=None, base_dims=None
     results = {}
     if is_cross:
         # 跨域: StandardScaler on src, DA on tgt, train on src, test on tgt
-        Xt_sub = Xt[:, base_dims] if base_dims is not None else Xt[:, ALL]
-        Xt_s = sc.transform(Xt_sub)
+        # Xt_s 上面已经算好, 这里只需 DA
         Xt_sd = apply_da(Xs_s, Xt_s, da)[1] if da != 'none' else Xt_s
         from sklearn.metrics import accuracy_score
         for clf_name in clf_list:

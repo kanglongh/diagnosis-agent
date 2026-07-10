@@ -122,12 +122,7 @@ def run_agent(task: dict, model='qwen-plus', verbose=True, max_rounds=20) -> dic
         msg = resp.choices[0].message
 
         if msg.content and not msg.tool_calls:
-            if sca_on and guard._stagnation >= 3:
-                ok = guard.submit_diagnosis(msg.content)
-                if verbose:
-                    mark = '✓' if ok else '?'
-                    print(f'\n  💭 [诊断 {mark}] {msg.content}')
-            elif msg.content and verbose:
+            if msg.content and verbose:
                 print(f'\n  💭 {msg.content}')
             if round_i < 2:
                 messages.append({'role': 'user', 'content': '请调用工具.'})

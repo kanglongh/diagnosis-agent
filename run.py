@@ -8,12 +8,12 @@ import argparse, os, sys, numpy as np, datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 _env = os.path.join(os.path.dirname(__file__), '.env')
 if os.path.exists(_env):
-    with open(_env) as f:
+    with open(_env, encoding='utf-8') as f:
         for line in f:
             line = line.strip()
             if line and not line.startswith('#') and '=' in line:
                 k, v = line.split('=', 1)
-                os.environ.setdefault(k.strip(), v.strip())
+                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 from agent.core import run_agent
 from agent.pipeline import evaluate
@@ -34,7 +34,7 @@ def main():
     p.add_argument('--dataset', default='pu', choices=['pu', 'cwru'])
     p.add_argument('--data', default='data/pu_tasks.npz')
     p.add_argument('--model', default='deepseek-v4-flash')
-    p.add_argument('--sca', default='off', choices=['on', 'off'])
+    p.add_argument('--sca', default='on', choices=['on', 'off'])
     args = p.parse_args()
 
     if args.dataset == 'cwru':

@@ -1,0 +1,110 @@
+============================================================
+diagnosis-agent · PU 跨域
+SCA: ON | 模型: deepseek-v4-flash | 日志: logs/pu_scaon_0710_2222.log
+============================================================
+
+PU_N09_N15: 120维 3类 src=5878窗 tgt=5890窗
+full120d: 0.7518  bot40: 0.8319
+
+  💭 好的，开始诊断！先观察数据情况。
+
+## 轮次 1：全局观察
+
+  💭 好的，数据来了！让我仔细分析。
+
+**任务概览**: PU_N09_N15 | 5878样本, 120维, 3分类
+
+**模块初步诊断**:
+| 模块 | 维数 | 平均权重 | top3权重 | 零权重 |
+|------|------|---------|---------|-------|
+| **peaks** | 12 | **0.210** ★最高 | 0.325 | 0 |
+| time | 12 | 0.172 | 0.311 | 0 |
+| freq | 15 | 0.159 | 0.250 | 0 |
+| band | 64 | 0.145 | **0.346** ★ | 0 |
+| cepstral | 17 | 0.102 | 0.216 | **2个零权重** |
+
+Top1维度: dim30 (0.604) — 极强主导。
+
+**假设1**: peaks 模块平均权重最高，但对分类可能最关键的是 **band + peaks** 组合，因为 band 虽然平均低但top3极高(0.346)，说明有少数强特征。
+
+先做模块消融实验验证：
+
+  🔬[跨域] 关 ['peaks']: -12维, RF=0.5029
+
+  🔬[跨域] 关 ['band']: -64维, RF=0.5020
+
+  🔬[跨域] 关 ['cepstral']: -17维, RF=0.5003
+
+  🔬[跨域] 关 ['time']: -12维, RF=0.5390
+
+  🔬[跨域] 关 ['freq']: -15维, RF=0.5005
+
+  💭 好的，现在有了清晰的数据。让我测一下 baseline 精度（使用所有120维）。
+  [1] weighted     n=120 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF]   [encourage] 新高: 0.7518 假设成立. 继续.
+→ 120d, SVM-Linear=0.7518
+
+  💭 **Baseline 建立**: 全120维 → **SVM-Linear 0.7518** (最高), LR 0.6795, KNN群 ~0.65
+
+**模块消融关键发现**:
+- **Time模块 (dim 0-11)**: 移除后 SVM-RBF **暴涨 +0.202** (0.452→0.654) → **疑似跨域噪声!**
+- **Cepstral模块 (dim 103-119)**: 移除后 KNN-5 **暴跌 -0.132** (0.649→0.517) → **对KNN极度关键**
+- **Band模块 (dim 27-90)**: 含 dim 30(权重0.604,最高), 对SVM-RBF重要(-0.096)
+
+**假设1**: Time模块含有跨域噪声 → 移除time仅保留其余模块，用SVM-Linear应能持平或超过baseline 0.7518
+
+验证一下:
+  [2] weighted     n=108 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF], base=108d (去time)   [encourage] 新高: 0.7900 假设成立. 继续.
+→ 108d, SVM-Linear=0.7900
+  [challenge] 路径?: 未试:fisher,l1_lasso. 凭什么更差?
+  [3] weighted     n= 60 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF], base=108d (去time)   [reflect] 假设?: 预测未兑现(0.6667). 哪里错了?
+→ 60d, KNN-3=0.6667
+  [challenge] 路径?: 未试:fisher,l1_lasso. 凭什么更差?
+  [4] fisher       n=108 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF], base=108d (去time)   [encourage] 新高: 0.7954 假设成立. 继续.
+→ 108d, SVM-Linear=0.7954
+  [challenge] 路径?: 未试:l1_lasso. 凭什么更差?
+  [5] l1_lasso     n=108 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF], base=108d (去time)   [reflect] 假设?: 预测未兑现(0.6666). 哪里错了?
+→ 12d, KNN-3=0.6666
+  [challenge] 区间?: 只在low搜. 如果最优是40维?
+  [6] mutual_info  n=108 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF], base=108d (去time)   [reflect] 假设?: 预测未兑现(0.7949). 哪里错了?
+→ 108d, SVM-Linear=0.7949
+  [challenge] 重复: fisher+108d=0.795已试. 区别?
+  [7] fisher       n=108 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF], base=108d (去time)   [reflect] 假设?: 预测未兑现(0.6949). 哪里错了?
+→ 108d, KNN-3=0.6949
+  [challenge] 天花板?: 3轮未破0.7954. 极限?
+  [8] fisher       n= 90 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF], base=108d (去time)   [reflect] 假设?: 预测未兑现(0.7698). 哪里错了?
+→ 90d, SVM-Linear=0.7698
+  [challenge] 重复: fisher+108d=0.695已试. 区别?
+  [9] fisher       n=108 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF], base=108d (去time)   [encourage] 新高: 0.8334 假设成立. 继续.
+→ 108d, KNN-7=0.8334
+  [challenge] 区间?: 只在low搜. 如果最优是40维?
+  [10] fisher       n= 80 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF], base=108d (去time)   [encourage] 新高: 0.8357 假设成立. 继续.
+→ 80d, RF=0.8357
+  [challenge] 区间?: 只在low搜. 如果最优是40维?
+  [11] fisher       n= 40 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF], base=108d (去time)   [reflect] 假设?: 预测未兑现(0.8307). 哪里错了?
+→ 40d, KNN-3=0.8307
+  [12] fisher       n= 70 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF], base=108d (去time)   [reflect] 假设?: 预测未兑现(0.8336). 哪里错了?
+→ 70d, KNN-3=0.8336
+  [challenge] 重复: fisher+80d=0.836已试. 区别?
+  [13] fisher       n= 85 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF], base=108d (去time)   [reflect] 假设?: 预测未兑现(0.8334). 哪里错了?
+→ 85d, KNN-5=0.8334
+  [challenge] 重复: fisher+70d=0.834已试. 区别?
+  [14] fisher       n= 75 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF], base=108d (去time)   [reflect] 假设?: 预测未兑现(0.8334). 哪里错了?
+→ 75d, KNN-3=0.8334
+  [challenge] 天花板?: 4轮未破0.8357. 极限?
+  [15] weighted     n= 80 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF], base=108d (去time)   [reflect] 假设?: 预测未兑现(0.8280). 哪里错了?
+→ 80d, RF=0.8280
+  [challenge] 重复: fisher+75d=0.833已试. 区别?
+  [16] fisher       n= 80 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF], base=108d (去time)   [reflect] 假设?: 预测未兑现(0.8321). 哪里错了?
+→ 80d, SVM-RBF=0.8321
+  [challenge] 重复: fisher+80d=0.832已试. 区别?
+  [17] fisher       n= 80 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF]   [reflect] 假设?: 预测未兑现(0.8334). 哪里错了?
+→ 80d, KNN-7=0.8334
+  [challenge] 天花板?: 7轮未破0.8357. 极限?
+  [18] mutual_info  n= 80 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF], base=108d (去time)   [reflect] 假设?: 预测未兑现(0.8187). 哪里错了?
+→ 80d, KNN-3=0.8187
+
+  Agent: fisher+80d+nonexRF=0.8357
+  vs full: Δ=+0.0839  vs bot40: Δ=+0.0038
+  尝试次数: 18
+
+日志保存: logs/pu_scaon_0710_2222.log
