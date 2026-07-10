@@ -107,9 +107,10 @@ python run.py --dataset pu --sca on --model deepseek-v4-flash
 ## 已知局限
 
 - 代码由 AI 辅助生成，非生产级质量
-- SCA 的追问效果受限于底层 LLM 的推理能力（deepseek-v4-flash 的响应质量优于 qwen3.7-max）
+- SCA 的追问效果受限于底层 LLM 的推理能力
 - 仅在 PU 和 CWRU 上测试，未在其他数据集验证
 - 同域探索深度不足（CWRU 同域近乎饱和，Agent 无优化空间）
+- 一个待验证的猜想：LLM 的自主探索能力受限于提示词工程，更强的基座模型是否能突破当前的天花板？
 
 ---
 
