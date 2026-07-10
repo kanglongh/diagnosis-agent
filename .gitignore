@@ -1,0 +1,6 @@
+.env
+__pycache__/
+*.pyc
+search_results.json
+.idea/
+.vscode/

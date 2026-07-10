@@ -1,0 +1,95 @@
+============================================================
+diagnosis-agent · PU 跨域
+SCA: OFF | 模型: deepseek-v4-flash | 日志: logs/pu_scaoff_0710_1405.log
+============================================================
+
+PU_N09_N15: 120维 3类 src=5878窗 tgt=5890窗
+full120d: 0.7533  bot40: 0.6424
+
+  💭 好的！初始诊断完成。让我分析数据：
+
+**任务**: PU_N09_N15, 3类故障, 5878样本, 120维
+
+**模块权重排名**:
+| 模块 | 维数 | 平均权重 | Top3权重 | 零权重 |
+|------|:----:|:--------:|:--------:|:------:|
+| **peaks** | 12 | **0.210** 🏆 | 0.325 | 0 |
+| time | 12 | 0.172 | 0.311 | 0 |
+| freq | 15 | 0.159 | 0.250 | 0 |
+| band | 64 | 0.145 | 0.346 | 0 |
+| **cepstral** | 17 | **0.102** ⚠️ | 0.216 | **2个零权重** |
+
+**初步假设**: 
+1. **peaks** 是最强的模块（最高平均权重）
+2. **cepstral** 最弱且有噪声（2个零权重维）
+3. **band** 虽然大但有一些强特征（top3=0.346）
+
+现在进行模块消融实验来验证：
+
+  🔬[跨域] 关 ['peaks']: -12维, RF=0.5029
+
+  🔬[跨域] 关 ['cepstral']: -17维, RF=0.5003
+
+  🔬[跨域] 关 ['time']: -12维, RF=0.5390
+
+  🔬[跨域] 关 ['freq']: -15维, RF=0.5005
+
+  🔬[跨域] 关 ['band']: -64维, RF=0.5020
+
+  💭 好的，我先设立一个基线——用全部120维特征测试，这样才能对比消融实验的精度变化。
+  [1] weighted     n=120 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF] → 120d, SVM-Linear=0.7525
+
+  💭 好的！现在有了基线数据。让我分析一下消融结果：
+
+**基线 (120 维全部):**
+| 分类器 | 精度 |
+|---|---|
+| SVM-RBF | 0.4516 |
+| SVM-Linear | **0.7525** |
+| LR | 0.6812 |
+| KNN-3/5/7 | ~0.645-0.652 |
+| RF | 0.5008 |
+
+**消融对比分析：**
+
+| 移除模块 | SVM-RBF变化 | KNN-5变化 | 含义 |
+|---|---|---|---|
+| **time** | **0.4516→0.6537 (+0.202!)** | 0.6486→0.6662 | 🟢 移除time大幅提升！ |
+| **cepstral** | 0.4516→0.3623 (-0.089) | **0.6486→0.517 (-0.132)** | 🔴 cepstral关键 |
+| **band** | 0.4516→0.3555 (-0.096) | 0.6486→0.6603 | 🔴 band对SVM-RBF重要 |
+| **peaks** | 0.4516→0.4409 (-0.011) | 0.6486→0.6545 | 微降 |
+| **freq** | 0.4516→0.4733 (+0.022) | 0.6486→0.6540 | 微升 |
+
+**假设形成：**
+> **时间模块 (dims 0-11) 包含强烈的工况特异性（域偏移）信息，在跨域诊断中干扰分类器。移除后域差异减少，精度提升。** 证据：移除time后SVM-RBF跳升20个点。
+
+现在验证这个假设👇
+  [2] weighted     n=108 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF], base=108d (去time) → 108d, SVM-Linear=0.7898
+
+  💭 **实验结果确认假设！时间模块是域噪声源。SVM-Linear 达到 0.7898（新高！）。**
+
+现在进入修正阶段。下一步假设：从108维中精选最强特征 + 去除cepstral中2个零权重噪声维，能否进一步提升？
+
+先看看测试不同的维度数量：
+  [3] weighted     n= 60 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF], base=108d (去time) → 60d, SVM-Linear=0.6667
+  [4] weighted     n=108 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF], base=108d (去time) → 108d, KNN-3=0.6949
+  [5] weighted     n=108 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF], base=108d (去time) → 108d, KNN-7=0.8334
+  [6] weighted     n= 90 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF], base=108d (去time) → 90d, RF=0.8251
+  [7] fisher       n=108 [SVM-RBF,SVM-Linear,LR,KNN-3,KNN-5,KNN-7,RF], base=108d (去time) → 108d, KNN-7=0.8334
+  [8] weighted     n= 70 [KNN-5,KNN-7,RF], base=108d (去time) → 70d, RF=0.8289
+  [9] weighted     n=108 [KNN-3,KNN-5,KNN-7,RF,SVM-Linear], base=108d (去time) → 108d, KNN-7=0.8267
+  [10] mutual_info  n=108 [KNN-5,KNN-7,RF], base=108d (去time) → 108d, KNN-7=0.8334
+  [11] weighted     n=120 [KNN-3,KNN-5,KNN-7,RF,SVM-Linear] → 120d, KNN-7=0.8333
+  [12] weighted     n=100 [KNN-5,KNN-7,RF], base=108d (去time) → 100d, RF=0.8399
+  [13] weighted     n= 95 [KNN-5,KNN-7,RF], base=108d (去time) → 95d, KNN-5=0.8334
+  [14] fisher       n=100 [KNN-5,KNN-7,RF], base=108d (去time) → 100d, KNN-5=0.8334
+  [15] l1_lasso     n=100 [KNN-5,KNN-7,RF], base=108d (去time) → 13d, KNN-5=0.7491
+  [16] weighted     n=105 [KNN-5,KNN-7,RF], base=108d (去time) → 105d, KNN-5=0.8334
+  [17] weighted     n= 90 [KNN-5,KNN-7,RF], base=108d (去time) → 90d, RF=0.8251
+  [18] weighted     n= 98 [KNN-5,KNN-7,RF], base=108d (去time) → 98d, KNN-5=0.8334
+
+  Agent: weighted+100d+nonexRF=0.8399
+  vs full: Δ=+0.0866  vs bot40: Δ=+0.1975
+  尝试次数: 18
+
+日志保存: logs/pu_scaoff_0710_1405.log
